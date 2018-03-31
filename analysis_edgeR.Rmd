@@ -1,0 +1,213 @@
+---
+title: "Analysis of Dominique's  RNAseq Data "
+output: 
+  html_notebook:
+    number_sections: yes
+    toc: yes
+    toc_float: yes
+    theme: united
+    highlight: tango
+    code_folding: hide
+author: "Frank"
+date: "`r date()`"
+---
+# Libraries 
+
+```{r}
+require(dplyr)
+require(limma)
+require(ggplot2)
+require(edgeR)
+```
+
+
+
+# Read the data
+```{r}
+raw.count <- read.delim(file="./data/counts-gene.txt",header = T,skip = 1,
+                        stringsAsFactors = F)
+anno.count <- raw.count[,1:6]; raw.count <- raw.count[,-c(1:6)]
+colnames(raw.count) <- sub(".filtered.bam","",colnames(raw.count)) 
+sample.info <- read.csv(file="./data/sample_info.csv",stringsAsFactors = F,
+                        header = T)
+anno.count$Geneid <- substr(anno.count$Geneid,1,18)
+```
+
+
+
+```{r}
+all.equal(colnames(raw.count),paste0("n",sample.info$Number)) # TRUE 
+sample.info$Number <- colnames(raw.count)
+sample.info$treat<-with(sample.info,paste(Genotype,X_CD3.CD28..hrs.,X_4.1BB..hrs.,sep = "_"))
+sample.info$treat <- factor(sample.info$treat)
+# check the mapped lib size 
+barplot(apply(raw.count,2,sum)/10^6)
+
+```
+
+# DE analysis (EdgeR method )
+```{r}
+y <- DGEList(counts = raw.count,genes = anno.count)
+y <- y[rowSums(cpm(y)>1)>=2,,keep.lib.sizes=F] #at least two sample cpm>2
+dim(y)
+y <- calcNormFactors(y)
+sample.info$treat<-with(sample.info,paste(X_CD3.CD28..hrs.,X_4.1BB..hrs.,sep = "_"))
+
+design <- model.matrix(~0+ Genotype:treat ,sample.info)
+```
+## plot MDS 
+
+```{r}
+pd <- plotMDS(y,pch = 21,cex=as.numeric(factor(sample.info$treat))*.5,
+        bg=as.numeric(factor(sample.info$Genotype,levels = c("WT","NES"))),
+        plot = T)
+# to be done with the labeling 
+levels(factor(sample.info$treat))
+```
+## dispersion 
+```{r}
+y <- estimateDisp(y,design)
+y$common.dispersion;sqrt(y$common.dispersion)
+# BCV 
+
+```
+```{r}
+plotBCV(y)
+
+```
+## GLM fit 
+
+
+```{r}
+fit <- glmFit(y,design )
+
+edger.comp.mat <- data.frame(WT12_12= c(0,-1,0,1,0,0),
+                             WT24_24=c(0,-1,0,0,0,1),
+                             NES12_12=c(-1,0,1,0,0,0),
+                             NES24_24=c(-1,0,0,0,1,0))
+
+lrt <- lapply(colnames(edger.comp.mat),function(x)
+  glmLRT(fit,contrast = edger.comp.mat[,x]))
+
+glt  <- sapply(colnames(edger.comp.mat),function(x)
+  glmTreat(fit,contrast = edger.comp.mat[,x],lfc = 1))
+
+# threshold 
+
+th.fdr <- .01; th.lfc <- 1
+edger.DEGs <- lapply(lrt,function(x) decideTestsDGE(x,p.value = th.fdr,lfc = th.lfc))
+length(unique(unlist(lapply(edger.DEGs,function(x) which(x==1)))))
+
+#save(file='./v1/edgeR_cmp.data',list = c("y","fit",
+ #                                        "design",'edger.DEGs'))
+```
+```{r}
+require(venn)
+venn(lapply(edger.DEGs,function(x) which(x==1)),zcolor = "style",ellipse = T,cexil = 0.75)
+if(F){
+  pd.fig <- readRDS("./finalize/pd_fig.rds")
+  pd.fig$b_venn <-  lapply(edger.DEGs,function(x) which(x==1))
+  saveRDS(pd.fig,file = "./finalize/pd_fig.rds")
+}
+```
+## MA plot 
+```{r,fig.height=2.5,fig.width=2.5}
+par(mfrow=c(2,2))
+for(i in 1:4){
+  plotSmear(lrt[[i]],de.tags = rownames(y)[as.logical(edger.DEGs[[i]])],
+            main=colnames(edger.comp.mat)[i],deCol="#90EE90")
+  abline(h=c(-th.lfc, th.lfc), col="#90EE90")
+  text(10,4,paste0('Up:',summary(edger.DEGs[[i]])[3],'\n Down:',summary(edger.DEGs[[i]])[1]))
+  }
+par(mfrow=c(1,1))
+
+## 
+if(F){
+  pd.fig <- list()
+  pd.fig$a_mdplot <-lrt
+
+  setEPS()
+  postscript('./finalize/Subfig7a.eps',height =1.4917,width = 3.1415)
+  par(mfrow=c(1,2))
+  for(i in 1:2){
+    plotSmear(lrt[[i]],de.tags = rownames(y)[as.logical(edger.DEGs[[i]])],
+              main=colnames(edger.comp.mat)[i],deCol="#90EE90")
+    abline(h=c(-th.lfc, th.lfc), col="#90EE90")
+    text(10,4,paste0('Up:',summary(edger.DEGs[[i]])[3],'\n Down:',summary(edger.DEGs[[i]])[1]))
+  }
+  par(mfrow=c(1,1))
+  dev.off()
+  saveRDS(pd.fig,file = "./finalize/pd_fig.rds")
+  }
+
+```
+## heatmap 
+
+```{r}
+edger.DEGs.mat <- do.call(cbind,edger.DEGs)
+colnames(edger.DEGs.mat) <- names(edger.DEGs)
+edger.comp.mat[edger.comp.mat<0] <- 0 
+edger.comp.mat <- apply(edger.comp.mat,2,as.logical)
+colnames(y) <- make.names(with(sample.info,paste(Genotype,treat,sep = "_")),unique = T)
+
+lcpm <- cpm(y,log = T)
+
+require(pheatmap)
+#pdf(file="heatmaps.pdf")
+sapply(1:4,function(x){
+  pd <- lcpm[edger.DEGs[[x]]==1,]
+  pd <- t(scale(t(pd))); m <- max(abs(range(pd)))
+  pheatmap(pd,scale = "none",show_rownames = F,
+           colorRampPalette(c("navy", "white", "firebrick3"))(10),
+           breaks = seq(-m,m,length.out = 11),
+           main=names(edger.DEGs)[x])})
+
+#dev.off()
+```
+
+lfc heatmap 
+
+```{r}
+#pdf(file="lfc_heatmaps.pdf")
+sapply(1:4,function(x){
+  pd <- lapply(1:4,function(i)
+    topTags(lrt[[i]],sort.by = 'none',n = nrow(lrt[[i]]))$table[edger.DEGs[[x]]==1,"logFC"])
+  pd <- do.call(cbind,pd); colnames(pd) <- names(lrt)
+  m <- ceiling(max(pd));seps <- seq(0,m,by = 1)
+  pheatmap(pd,scale = "none",show_rownames = F,
+           colorRampPalette(c( "white", "firebrick3"))(length(seps)-1),
+           breaks = seps,
+           main=names(edger.DEGs)[x])
+})
+selc <- unique(unlist(lapply(edger.DEGs,function(x) which(x==1))))
+pd <- lapply(1:4,function(i)
+    topTags(lrt[[i]],sort.by = 'none',n = nrow(lrt[[i]]))$table[selc,"logFC"])
+pd <- do.call(cbind,pd); colnames(pd) <- names(lrt)
+m <- ceiling(max(pd));seps <- seq(0,m,by = 1)
+pheatmap(pd,scale = "none",show_rownames = F,
+         colorRampPalette(c( "white", "firebrick3"))(length(seps)-1),
+         breaks = seps,
+         main="all")
+#dev.off()
+
+```
+# Check 41-BB
+
+```{r}
+rownames(lcpm) <- y$genes$Geneid
+
+target.gene <- "ENSMUSG00000028965" #4-1BB
+pd <- lcpm[target.gene,]
+pd <- data.frame(sample.info,lcpm=as.numeric(pd))
+ggplot(pd,aes(make.names(paste(Genotype,treat,sep = "_"),unique=T),lcpm)) +geom_col()
+
+```
+
+
+
+# Session Info 
+```{r}
+ sessionInfo()
+```
+
+

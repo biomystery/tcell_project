@@ -4,7 +4,7 @@ require(ggplot2)
 require(pheatmap)
 pd <- readRDS(file = "./finalize/pd_fig.rds")
 attach(pd)
-# Fig.7A -maPlot ----------------------------------------------------------
+# Fig.5A -maPlot ----------------------------------------------------------
 par(mfrow=c(1,2))
 for(i in 1:2){
   plotSmear(lrt[[i]],de.tags = rownames(y)[as.logical(edger.DEGs[[i]])],
@@ -14,7 +14,7 @@ for(i in 1:2){
 }
 par(mfrow=c(1,1))
 
-# Fig.7B - venn diagam ----------------------------------------------------
+# Fig.5B - venn diagam ----------------------------------------------------
 require(venn)
 venn(lapply(edger.DEGs,function(x) which(x==1)),zcolor = "style",ellipse = T,cexil = 0.75)
 
@@ -33,7 +33,7 @@ p <- ggplot(pd.kegg,aes(y=Fold.Enrichment,x=Term))+ geom_bar(stat = 'identity',f
 ggsave(filename = "./finalize/subfigs/Subfig7c.eps",width = 3,height = 2.5,plot = p,
        scale = 2.5)
 
-# Fig.7D heatmap  ---------------------------------------------------------
+# Fig.5D heatmap  ---------------------------------------------------------
 glist.NES.clust1 <- read.csv(file='./analysis3/08Homer/glist_clust1.txt',
                              stringsAsFactors = F,header = F)
 glist.NES.clust2 <- read.csv(file='./analysis3/08Homer/glist_clust2.txt',
@@ -84,7 +84,7 @@ dev.off()
 }
 pd.fig$d_hm <- pd
 
-# Fig.7EF-motifs ----------------------------------------------------------
+# Fig.5EF-motifs ----------------------------------------------------------
 
 # 1. logos
 require(ggseqlogo)
@@ -108,7 +108,7 @@ if(T){
 
 
 
-# Fig.7EF-motifs-bar ----------------------------------------------------------
+# Fig.5EF-motifs-bar ----------------------------------------------------------
 pd <- read.csv(file = "./analysis3/wholeMM10/all.anno.reduced.csv",stringsAsFactors = F)
 #glist.NES <- read.csv(file='./analysis3/08Homer/glist_clustAll.txt',
 #                      stringsAsFactors = F,header = F)

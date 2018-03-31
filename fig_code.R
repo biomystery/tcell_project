@@ -2,8 +2,41 @@ require(edgeR)
 require(tidyverse)
 require(ggplot2)
 require(pheatmap)
+require(dplyr)
+require(limma)
+
 pd <- readRDS(file = "./finalize/pd_fig.rds")
 attach(pd)
+
+
+# analysis  ---------------------------------------------------------------
+dat<- list()
+
+func_1a <- function(){
+  raw.count <- read.delim(file="./data/counts-gene.txt",header = T,skip = 1,
+                          stringsAsFactors = F)
+  anno.count <- raw.count[,1:6]; raw.count <- raw.count[,-c(1:6)]
+  colnames(raw.count) <- sub(".filtered.bam","",colnames(raw.count)) 
+  sample.info <- read.csv(file="./data/sample_info.csv",stringsAsFactors = F,
+                          header = T)
+  anno.count$Geneid <- substr(anno.count$Geneid,1,18)
+  sample.info$Number <- colnames(raw.count)
+  sample.info$treat<-with(sample.info,paste(Genotype,X_CD3.CD28..hrs.,X_4.1BB..hrs.,sep = "_"))
+  sample.info$treat <- factor(sample.info$treat)
+  
+  y <- DGEList(counts = raw.count,genes = anno.count)
+  y <- y[rowSums(cpm(y)>1)>=2,,keep.lib.sizes=F] #at least two sample cpm>2
+  dim(y)
+  y <- calcNormFactors(y)
+  sample.info$treat<-with(sample.info,paste(X_CD3.CD28..hrs.,X_4.1BB..hrs.,sep = "_"))
+  
+  design <- model.matrix(~0+ Genotype:treat ,sample.info)
+}
+
+dat$a <- func_1a() 
+
+
+
 # Fig.5A -maPlot ----------------------------------------------------------
 par(mfrow=c(1,2))
 for(i in 1:2){
